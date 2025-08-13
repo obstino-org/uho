@@ -1,0 +1,154 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<ScrollView android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fillViewport="true"
+    xmlns:android="http://schemas.android.com/apk/res/android">
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/main"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/icon"
+    tools:context=".SettingsActivity">
+
+    <TextView
+        android:id="@+id/textview_fontsize"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Velikost pisave:"
+        android:textColor="@color/white"
+        android:textSize="30sp"
+        android:layout_marginTop="30dp"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintLeft_toLeftOf="parent"
+        app:layout_constraintRight_toRightOf="parent"
+        />
+
+    <RadioGroup
+        android:id="@+id/radiogroup_fontsize"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        app:layout_constraintTop_toBottomOf="@id/textview_fontsize"
+        app:layout_constraintLeft_toLeftOf="parent"
+        app:layout_constraintRight_toRightOf="parent">
+
+        <RadioButton
+            android:id="@+id/radiobutton_small"
+            android:buttonTint="@color/white"
+            android:textColor="@color/white"
+            android:textSize="10sp"
+            android:text="Aa"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            />
+
+        <RadioButton
+            android:id="@+id/radiobutton_normal"
+            android:buttonTint="@color/white"
+            android:textColor="@color/white"
+            android:textSize="14sp"
+            android:text="Aa"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"/>
+
+        <RadioButton
+            android:id="@+id/radiobutton_medium"
+            android:buttonTint="@color/white"
+            android:textColor="@color/white"
+            android:textSize="20sp"
+            android:text="Aa"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"/>
+
+        <RadioButton
+            android:id="@+id/radiobutton_large"
+            android:buttonTint="@color/white"
+            android:textColor="@color/white"
+            android:textSize="30sp"
+            android:text="Aa"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"/>
+    </RadioGroup>
+
+
+    <TextView
+        android:id="@+id/textview_soundsource"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Vir zvoka:"
+        android:textColor="@color/white"
+        android:textSize="30sp"
+        android:layout_marginTop="30dp"
+        app:layout_constraintTop_toBottomOf="@id/radiogroup_fontsize"
+        app:layout_constraintLeft_toLeftOf="parent"
+        app:layout_constraintRight_toRightOf="parent"
+        />
+
+    <RadioGroup
+        android:id="@+id/radiogroup_soundsource"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        app:layout_constraintTop_toBottomOf="@id/textview_soundsource"
+        app:layout_constraintLeft_toLeftOf="parent"
+        app:layout_constraintRight_toRightOf="parent">
+        <RadioButton
+            android:id="@+id/radiobutton_speakers"
+            android:buttonTint="@color/white"
+            android:textColor="@color/white"
+            android:text="Zvočniki / slušalke"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            />
+
+        <RadioButton
+            android:id="@+id/radiobutton_microphone"
+            android:buttonTint="@color/white"
+            android:textColor="@color/white"
+            android:text="Mikrofon"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"/>
+    </RadioGroup>
+
+    <TextView
+        android:id="@+id/textview_soundstep"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Hitrost:"
+        android:textColor="@color/white"
+        android:textSize="30sp"
+        android:layout_marginTop="30dp"
+        app:layout_constraintTop_toBottomOf="@id/radiogroup_soundsource"
+        app:layout_constraintLeft_toLeftOf="parent"
+        app:layout_constraintRight_toRightOf="parent"
+        />
+
+    <RadioGroup
+        android:id="@+id/radiogroup_soundstep"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        app:layout_constraintTop_toBottomOf="@id/textview_soundstep"
+        app:layout_constraintLeft_toLeftOf="parent"
+        app:layout_constraintRight_toRightOf="parent">
+        <RadioButton
+            android:id="@+id/radiobutton_step1"
+            android:buttonTint="@color/white"
+            android:textColor="@color/white"
+            android:text="Hitreje (manj točno)"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            />
+
+        <RadioButton
+            android:id="@+id/radiobutton_step2"
+            android:buttonTint="@color/white"
+            android:textColor="@color/white"
+            android:text="Počasneje (točneje)"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"/>
+    </RadioGroup>
+
+</androidx.constraintlayout.widget.ConstraintLayout>
+</ScrollView>
