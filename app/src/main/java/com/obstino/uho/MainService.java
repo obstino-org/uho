@@ -79,24 +79,9 @@ public class MainService extends Service {
     // Triggered when we start the service (called every time startService is called, can be done multiple times -- Intent contains info)
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        // String input = intent.getStringExtra("...");
-        if(soundSource == SoundSource.startstream) {
-            mainThread = new Thread(mainThreadRunnable);
-            mainThread.start();
-            Log.i("UHO2", "Starting main thread");
-        }
-
-        return START_STICKY;
-        //return super.onStartCommand(intent, flags, startId);
-    }
-
-    // Called the first time we start the service
-    @Override
-    public void onCreate() {
-        serviceInstance = this;
-
         Intent notificationIntent = new Intent(this, MainActivity.class);
         PendingIntent pendingIntent = PendingIntent.getActivity(this, 0, notificationIntent, PendingIntent.FLAG_MUTABLE);
+
         Notification notification = new NotificationCompat.Builder(this, CHANNEL_ID)
                 .setContentInfo("UHO storitev")
                 .setContentText("")
@@ -108,12 +93,30 @@ public class MainService extends Service {
             startForeground(1, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION);
         }
 
+        // String input = intent.getStringExtra("...");
+        if(soundSource == SoundSource.startstream) {
+            mainThread = new Thread(mainThreadRunnable);
+            mainThread.start();
+            Log.i("UHO2", "Starting main thread");
+        }
+
+        if(mainThread == null)
+            sendMainActivityBroadcastMessage(0);    // message MainActivity that service has started
+
+        return START_STICKY;
+        //return super.onStartCommand(intent, flags, startId);
+    }
+
+    // Called the first time we start the service
+    @Override
+    public void onCreate() {
+        serviceInstance = this;
+
         PowerManager powerManager = (PowerManager) getSystemService(POWER_SERVICE);
         PowerManager.WakeLock wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "MyApp::MyWakelockTag");
         wakeLock.acquire();
 
         prefs = getSharedPreferences("settings", MODE_PRIVATE);
-
         super.onCreate();
     }
 
@@ -126,7 +129,13 @@ public class MainService extends Service {
         super.onDestroy();
     }
 
-    void sendBroadcastMessage(String message) {
+    void sendMainActivityBroadcastMessage(int m) {
+        Intent intent = new Intent(MainActivity.BROADCAST_EVENT_NAME);
+        intent.putExtra("msg", m);
+        LocalBroadcastManager.getInstance((Context)serviceInstance).sendBroadcast(intent);
+    }
+
+    void sendPrintoutBroadcastMessage(String message) {
         Intent intent = new Intent(PrintoutActivity.BROADCAST_EVENT_NAME);
         intent.putExtra("newText", message);
         LocalBroadcastManager.getInstance((Context)serviceInstance).sendBroadcast(intent);
@@ -312,6 +321,9 @@ public class MainService extends Service {
                 case SettingsActivity.STEP_SETTING_SPEED:
                     stepDouble = SettingsActivity.stepSpeed;
                     break;
+                case SettingsActivity.STEP_SETTING_BALANCE:
+                    stepDouble = SettingsActivity.stepBalance;
+                    break;
                 case SettingsActivity.STEP_SETTING_ACCURACY:
                     stepDouble = SettingsActivity.stepAccuracy;
                     break;
@@ -351,9 +363,11 @@ public class MainService extends Service {
                     fullText += text;
 
                 if(PrintoutActivity.active) {
-                    fullText = "";
+                    fullText = "";  // this hides captions
                     if (!text.isEmpty())
-                        sendBroadcastMessage(text);
+                        sendPrintoutBroadcastMessage(text);
+                } else {
+                    fullText = fullText.replace("*", "");   // don't display * (used as indicator for newline in printout textview)
                 }
 
                 MyRunnable myRunnable = new MyRunnable(fullText, layout);

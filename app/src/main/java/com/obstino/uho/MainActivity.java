@@ -12,15 +12,20 @@ import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
+import androidx.localbroadcastmanager.content.LocalBroadcastManager;
 
 import android.Manifest;
 import android.app.AlertDialog;
+import android.content.BroadcastReceiver;
+import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.media.projection.MediaProjection;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.provider.Settings;
@@ -38,6 +43,7 @@ import com.obstino.uho.databinding.ActivityMainBinding;
 public class MainActivity extends AppCompatActivity {
 
     static MediaProjection mediaProjection;
+    static ActivityResult mediaProjectionResult;
 
     // Used to load the 'uho' library on application startup.
     static {
@@ -48,6 +54,8 @@ public class MainActivity extends AppCompatActivity {
     final int REQUEST_PERMISSION_MICROPHONE = 100;
     final int REQUEST_PERMISSION_PROJECTION = 200;
     final int REQUEST_PERMISSION_OVERLAY = 300;
+
+    static final String BROADCAST_EVENT_NAME = "MainActivityBroadcast";
 
     MediaProjectionManager mediaProjectionManager;
 
@@ -68,11 +76,14 @@ public class MainActivity extends AppCompatActivity {
 
         prefs = getSharedPreferences("settings", MODE_PRIVATE);
 
-        if(MainService.serviceInstance == null) {
-            Log.i("UHO1", "Trying to startforeground");
-            Intent serviceIntent = new Intent(getApplicationContext(), MainService.class);
-            startForegroundService(serviceIntent);
-        }
+        LocalBroadcastManager.getInstance(this).registerReceiver(myBroadcastReceiver,
+                new IntentFilter(MainActivity.BROADCAST_EVENT_NAME));
+
+        //if(MainService.serviceInstance == null) {
+        //    Log.i("UHO1", "Trying to startforeground");
+        //    Intent serviceIntent = new Intent(getApplicationContext(), MainService.class);
+        //    startForegroundService(serviceIntent);
+        //}
 
         binding = ActivityMainBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
@@ -83,21 +94,20 @@ public class MainActivity extends AppCompatActivity {
         buttonStart.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                if(MainService.serviceInstance == null)
-                    return;
+                boolean serviceRunning = (MainService.serviceInstance != null);
 
-                if(MainService.serviceInstance.soundSource == SoundSource.stream) {
+                if(serviceRunning && MainService.serviceInstance.soundSource == SoundSource.stream) {
                     // apparently ASR is happening already, stop it then
                     Log.i("UHO1", "Nastavljam soundsource na stop");
                     MainService.serviceInstance.soundSource = SoundSource.stop;
                     Log.i("UHO1", "Nastavil na stop.");
                     buttonStart.setText("Zaženi");
-                } else if(MainService.serviceInstance.soundSource == SoundSource.none) {
+                } else if(!serviceRunning || MainService.serviceInstance.soundSource == SoundSource.none) {
                     runSpeechRecognitionCheckPermissions();
-                } else if(MainService.serviceInstance.soundSource == SoundSource.stop) {
+                } else if(serviceRunning && MainService.serviceInstance.soundSource == SoundSource.stop) {
                     Toast.makeText(MainActivity.this, "Prosim počakajte trenutek, ustavljanje v teku.", Toast.LENGTH_SHORT).show();
                     mediaProjection = null;
-                } else if(MainService.serviceInstance.soundSource == SoundSource.startstream) {
+                } else if(serviceRunning && MainService.serviceInstance.soundSource == SoundSource.startstream) {
                     Toast.makeText(MainActivity.this, "Prosim počakajte trenutek, zagon v teku.", Toast.LENGTH_SHORT).show();
                 }
             }
@@ -148,6 +158,21 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        LocalBroadcastManager.getInstance(this).unregisterReceiver(myBroadcastReceiver);
+    }
+
+    private BroadcastReceiver myBroadcastReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            // optionally obtain e.g. intent.getStringExtra("xyz");
+            Log.i("UHO1", "Inside broadcast onReceive, setting media projection & running service.");
+            setMediaProjectionAndRunService();
+        }
+    };
+
     void helperOnRequestPermissionsResult(int requestCode) {
         switch (requestCode) { // this is the first we grant
             case REQUEST_PERMISSION_OVERLAY:
@@ -161,7 +186,8 @@ public class MainActivity extends AppCompatActivity {
                 }
                 break;
             case REQUEST_PERMISSION_MICROPHONE:
-                runSpeechRecognition();
+                showEnableMediaProjection();
+                //runSpeechRecognition();
                 break;
         }
     }
@@ -182,6 +208,11 @@ public class MainActivity extends AppCompatActivity {
             helperOnRequestPermissionsResult(requestCode);
     }
 
+    public static boolean isHuaweiDevice() {    // (check by gpt)
+        return Build.BRAND.equalsIgnoreCase("Huawei") ||
+                Build.BRAND.equalsIgnoreCase("Honor"); // Honor is a Huawei sub-brand
+    }
+
     boolean hasOverlayPermission() {
         return Settings.canDrawOverlays(this);
     }
@@ -194,15 +225,23 @@ public class MainActivity extends AppCompatActivity {
         }
 
         AlertDialog.Builder dlgAlert  = new AlertDialog.Builder(this);
-        dlgAlert.setMessage("Aplikacija UHO za prikaz okna s podnapisi potrebuje vaše dovoljenje.");
+        dlgAlert.setMessage("Aplikacija UHO za prikaz okna s podnapisi potrebuje vaše dovoljenje (pojavitev na vrhu).");
         dlgAlert.setTitle("UHO - dovoljenje (izpis podnapisov)");
         dlgAlert.setPositiveButton("Vredu", new DialogInterface.OnClickListener() {
             @Override
             public void onClick(DialogInterface dialog, int which) {
                 Log.i("UHO1", "Requesting overlay permission");
-                Intent intent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION);
-                intent.setData(Uri.parse("package:$packageName"));
-                startActivityForResult(intent, REQUEST_PERMISSION_OVERLAY);
+                if(isHuaweiDevice()) {
+                    Log.i("UHO1", "(Huawei fallback)");
+                    Intent intent = new Intent();
+                    intent.setAction(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+                    intent.setData(Uri.parse("package:" + getPackageName()));
+                    startActivityForResult(intent, REQUEST_PERMISSION_OVERLAY);
+                } else {
+                    Intent intent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION);
+                    intent.setData(Uri.parse("package:$packageName"));
+                    startActivityForResult(intent, REQUEST_PERMISSION_OVERLAY);
+                }
             }
         });
 
@@ -264,10 +303,13 @@ public class MainActivity extends AppCompatActivity {
                             if(resultCode != RESULT_OK)
                                 return;
 
-                            Intent resultIntent = result.getData();
-                            mediaProjection = mediaProjectionManager.getMediaProjection(resultCode, resultIntent);
-                            Log.i("UHO1", "Got MediaProjection token. Running speech recognition.");
                             runSpeechRecognition();
+
+                            mediaProjectionResult = result;
+                            //Intent resultIntent = result.getData();
+                            //int resultCode = result.getResultCode();
+                            //mediaProjection = mediaProjectionManager.getMediaProjection(resultCode, resultIntent);
+                            //Log.i("UHO1", "Got MediaProjection token. Running speech recognition.");
                         }
                     }, 500);
                 }
@@ -295,10 +337,14 @@ public class MainActivity extends AppCompatActivity {
         dlgAlert.create().show();
     }
 
-    void runSpeechRecognition() {
-        Log.i("UHO1", "Nastavljam mediaProjection");
-        MainService.serviceInstance.mediaProjection = mediaProjection;
+    void setMediaProjectionAndRunService() {
+        Log.i("UHO1", "Pridobivam mediaProjection");
+        Intent resultIntent = mediaProjectionResult.getData();
+        int resultCode = mediaProjectionResult.getResultCode();
+        mediaProjection = mediaProjectionManager.getMediaProjection(resultCode, resultIntent);
 
+        Log.i("UHO1", "Pridobil MediaProjection token. Nastavljam.");
+        MainService.serviceInstance.mediaProjection = mediaProjection;
         MainService.serviceInstance.soundSource = SoundSource.startstream;
         Intent serviceIntent = new Intent(getApplicationContext(), MainService.class);
         startForegroundService(serviceIntent);
@@ -306,12 +352,23 @@ public class MainActivity extends AppCompatActivity {
         buttonStart.setText("Ustavi");
     }
 
+    void runSpeechRecognition() {
+        if(MainService.serviceInstance == null) {
+            Log.i("UHO1", "Service hasn't been started yet. Calling startForegroundService and waiting for broadcast");
+            Intent serviceIntent = new Intent(getApplicationContext(), MainService.class);
+            startForegroundService(serviceIntent);
+        } else {
+            setMediaProjectionAndRunService();
+        }
+    }
+
     void showEnableAll() {
         showEnableOverlay();
     }
 
     void runSpeechRecognitionCheckPermissions() {
-        if(MainService.serviceInstance.soundSource != SoundSource.none)
+        boolean serviceRunning = (MainService.serviceInstance != null);
+        if(serviceRunning && MainService.serviceInstance.soundSource != SoundSource.none)
             return;
 
         showEnableAll();

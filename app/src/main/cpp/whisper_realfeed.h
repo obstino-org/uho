@@ -28,6 +28,7 @@ public:
 		int sr = 16000;
 		double maxSilenceResetTime = 10.0; //3.0; //  (13.8.2025 -- changed to 10 seconds)
         double zeroSamplesSeconds = 2.0; // 2.0 (use 2.0 normally) // 1.500 <---- defines how many seconds of silence sound buffer has at end (helps prevent hallucinations)
+        double textviewNewlineSilenceTime = 3.0;    // after this time passes, printout textview will display a few empty lines for visual clarity
 #ifdef CTX10_BASE_MODEL
 		double fullSizeSeconds = 10.0;	// buffer size (should stay fixed to 10.0)
 		double windowSizeSeconds = 10.0; // buffer window size (anything outside this window is silence) -- not used
@@ -402,10 +403,10 @@ public:
     // Reimplementation of getNextStreamMel (august 2025)
     // Features:
     //  - function waits until there are at least config.frameStepSeconds of voice activity; silent segments captured in loop don't count as voice activity
-    //      - parameter numVadChunksBetweenSound controls how much time of silence is added to left and right 'margins' of recorded voice activity segments
-    //      - if buffer that stores voice activity (noSilenceNewBuffer) contains config.maxSilenceResetTime (3) seconds of silence, and only silence,
+    //      - parameter maxSoundActive controls how much time of silence is added to left and right 'margins' of recorded voice activity segments
+    //      - if buffer that stores voice activity (noSilenceNewBuffer) contains config.maxSilenceResetTime seconds of silence, and only silence,
     //        break out of loop, reset buffer, and signalize other code to reset prompt
-    //      - break out of loop if there's been *some* voice activity, and at least 0.1 seconds of silence (somewhat experimental, may help show captions with a faster pace; might be removed later)
+    //      - break out of loop if there's been *some* voice activity, and at least 0.1 seconds of silence (shows captions with a faster pace)
     //  - optionally add white noise (experimental feature, generally doesn't seem to be necessary)
     //  - sound buffer is left-aligned, such that final "computeBuffer" variable will have zero padding on right
     //      - computeBuffer has a limited size of (10 - config.zeroSamplesSeconds) seconds (for base model with 10s context window this is usually 8 seconds)
@@ -413,7 +414,7 @@ public:
     //               buffer will temporarily be 9 seconds long, and then 1 second of audio will be pop-ed from front of buffer
     //               so that buffer is 8 seconds long (or generally 10 - config.zeroSeconds). Afterwards, 2 seconds of padding will be
     //               added to this 8 second audio so that we have 10 second buffer. We use that final 10 second buffer to compute mel spectrogram.
-    whisper_mel getNextStreamMel(shared_ptr<MainStream> stream, bool& shouldResetPrompt, atomic<bool> &stopLooperThread, bool &dontPopBackExtra) {
+    whisper_mel getNextStreamMel(shared_ptr<MainStream> stream, bool& shouldResetPrompt, atomic<bool> &stopLooperThread, bool &dontPopBackExtra, double &outSilenceTime) {
         whisper_mel out;
 
         static int cumulativeSilenceCount = 0;
@@ -539,6 +540,7 @@ public:
         vector<float> noSilenceNewBuffer;
         int maxSoundActive = 3;
         static double silenceTime = 0.0;
+        outSilenceTime = silenceTime;
         static int soundActive = -maxSoundActive;
         static deque<vector<float>> prev3Chunks;
         if(!prev3Chunks.size()) {
@@ -579,6 +581,7 @@ public:
                     silenceTime = 0.0;
                 } else {
                     silenceTime += (double)vad.audioChunkSize/(double)config.sr;
+                    outSilenceTime = silenceTime;   // return silenceTime parameter, to display a few empty lines in textview if there's been silence
                 }
 
                 prev3Chunks.pop_front();
@@ -786,7 +789,8 @@ public:
 		// Reset static audio buffer when beginning inference
 		bool initialShouldResetPrompt = true;
 		bool initialDontPopBackExtra;
-        getNextStreamMel(stream, initialShouldResetPrompt, stopLooperThread, initialDontPopBackExtra);
+        double initialSilenceTime;
+        getNextStreamMel(stream, initialShouldResetPrompt, stopLooperThread, initialDontPopBackExtra, initialSilenceTime);
 
 		vector<size_t> prompt = {};
 		//string utf8textASR = "";
@@ -796,9 +800,10 @@ public:
 			double lastSpeechTime;
 			bool shouldResetPrompt = false;
             bool dontPopBackExtra = true;
+            double silenceTime = 0.0;
 
             auto t0 = chrono::high_resolution_clock::now();
-            whisper_mel mel = getNextStreamMel(stream, shouldResetPrompt, stopLooperThread, dontPopBackExtra);
+            whisper_mel mel = getNextStreamMel(stream, shouldResetPrompt, stopLooperThread, dontPopBackExtra, silenceTime);
             auto t1 = chrono::high_resolution_clock::now();
             __android_log_print(ANDROID_LOG_INFO, "UHO2", "getNextStreamMel = %i ms", chrono::duration_cast<chrono::milliseconds>(t1-t0).count());
 
@@ -822,7 +827,10 @@ public:
             auto a1 = chrono::high_resolution_clock::now();
             __android_log_print(ANDROID_LOG_INFO, "UHO2", "additiveInference = %i ms", chrono::duration_cast<chrono::milliseconds>(a1-a0).count());
 
-            beam->dontPopBack = dontPopBackExtra;
+            // sometimes whisper.additiveInference sets beam->dontPopBack to true (when false detect hallucinations).
+            // in such a case we ignore "dontPopBackExtra" (obtained from getNextStreamMel)
+            if(!beam->dontPopBack)
+                beam->dontPopBack = dontPopBackExtra;
 
             // New text is now contained in beam->ids
 
@@ -837,12 +845,19 @@ public:
 			if (res == false) {	// fail-proof fuse (in case of hallucinations)
 				__android_log_print(ANDROID_LOG_INFO, "UHO2", "RES == FALSE. Resetting stuff");
                 shouldResetPrompt = true;
-				getNextStreamMel(stream, shouldResetPrompt, stopLooperThread, dontPopBackExtra);
+				getNextStreamMel(stream, shouldResetPrompt, stopLooperThread, dontPopBackExtra, silenceTime);
 				prompt = {};
 			}
 
-			if(shouldResetPrompt == true)
+			/*if(shouldResetPrompt == true)
                 fTextCallback(utf8AddedTextASR + ". ");
+            else
+                fTextCallback(utf8AddedTextASR);*/
+            __android_log_print(ANDROID_LOG_INFO, "UHO2", "silenceTime = %.2f", silenceTime);
+            if(/*!utf8AddedTextASR.empty() && */silenceTime >= config.textviewNewlineSilenceTime) {
+                __android_log_print(ANDROID_LOG_INFO, "UHO2", "(callback with *)");
+                fTextCallback("*" + utf8AddedTextASR);
+            }
             else
                 fTextCallback(utf8AddedTextASR);
 

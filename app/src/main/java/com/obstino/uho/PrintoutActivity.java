@@ -74,6 +74,8 @@ public class PrintoutActivity extends AppCompatActivity {
         boolean alreadyAppendedNewline = false;
         double newlineAppendTime = 2.0;     // after this time, new line will be appended in textview
 
+        boolean nextTimeAppendNewLine = false;
+
         @Override
         public void onReceive(Context context, Intent intent) {
             Long timeNow = System.currentTimeMillis();
@@ -85,8 +87,9 @@ public class PrintoutActivity extends AppCompatActivity {
 
             textToAppend += newText;
 
-            // if more than 5 seconds passed between broadcasts, append new lines
-            if(timePrev != 0L) {
+            // if more than config.textviewNewlineSilenceTime (whisper_realfeed.h) seconds passed between broadcasts, append new lines
+            // newline is communicated using * character, which we replace with 2 new lines
+            /*if(timePrev != 0L) {
                 if((timeNow - timePrev) > (int)((double)newlineAppendTime*1000.0)) {
                     if(!alreadyAppendedNewline &&
                         (newText.length()>=2 && newText.charAt(newText.length()-2) == '.' &&
@@ -99,8 +102,22 @@ public class PrintoutActivity extends AppCompatActivity {
                     alreadyAppendedNewline = false;
                 }
             }
-            timePrev = timeNow;
+            timePrev = timeNow;*/
             Log.i("UHO1", "Received broadcast string: " + textToAppend);
+
+            if(!textviewPrintout.getText().toString().isEmpty()) {
+                if (textToAppend.equals("*")) {
+                    nextTimeAppendNewLine = true;
+                    textToAppend = "";
+                } else if(!textToAppend.contains("*") && nextTimeAppendNewLine) {
+                    textToAppend = "\n\n" + textToAppend;
+                    nextTimeAppendNewLine = false;
+                }
+                else {
+                    textToAppend = textToAppend.replace("*, ", "\n\n");
+                    textToAppend = textToAppend.replace("*", "\n\n");
+                }
+            }
 
             // Append text to textview
             int lineHeight = textviewPrintout.getLineHeight();  // in pixels

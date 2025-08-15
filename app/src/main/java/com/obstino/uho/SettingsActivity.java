@@ -18,9 +18,11 @@ import androidx.core.view.WindowInsetsCompat;
 public class SettingsActivity extends AppCompatActivity {
 
     static final int STEP_SETTING_SPEED = 0;
-    static final int STEP_SETTING_ACCURACY = 1;
-    static final int defaultStepSetting = STEP_SETTING_SPEED;
+    static final int STEP_SETTING_BALANCE = 1;
+    static final int STEP_SETTING_ACCURACY = 2;
+    static final int defaultStepSetting = STEP_SETTING_BALANCE;
     static final double stepSpeed = 1.0;
+    static final double stepBalance = 1.5;
     static final double stepAccuracy = 2.0;
 
     static int [] fontSizes = { 10, 14, 20, 30 };
@@ -39,6 +41,7 @@ public class SettingsActivity extends AppCompatActivity {
 
     RadioButton radioStep1;
     RadioButton radioStep2;
+    RadioButton radioStep3;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -63,6 +66,7 @@ public class SettingsActivity extends AppCompatActivity {
 
         radioStep1 = findViewById(R.id.radiobutton_step1);
         radioStep2 = findViewById(R.id.radiobutton_step2);
+        radioStep3 = findViewById(R.id.radiobutton_step3);
 
         // Set sound source GUI settings
         boolean useMicrophone = prefs.getBoolean("useMicrophone", defaultUseMicrophone);
@@ -159,10 +163,17 @@ public class SettingsActivity extends AppCompatActivity {
 
         // Set sound capture step GUI settings
         int stepSetting = prefs.getInt("stepSetting", defaultStepSetting);
-        if(stepSetting == STEP_SETTING_SPEED)
-            radioStep1.setChecked(true);
-        else
-            radioStep2.setChecked(true);
+        switch (stepSetting) {
+            case STEP_SETTING_SPEED:
+                radioStep1.setChecked(true);
+                break;
+            case STEP_SETTING_BALANCE:
+                radioStep2.setChecked(true);
+                break;
+            case STEP_SETTING_ACCURACY:
+                radioStep3.setChecked(true);
+                break;
+        }
 
         radioStep1.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
             @Override
@@ -176,6 +187,17 @@ public class SettingsActivity extends AppCompatActivity {
         });
 
         radioStep2.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+            @Override
+            public void onCheckedChanged(CompoundButton compoundButton, boolean isChecked) {
+                if(!isChecked)
+                    return;
+                SharedPreferences.Editor editor = prefs.edit();
+                editor.putInt("stepSetting", STEP_SETTING_BALANCE);
+                editor.apply();
+            }
+        });
+
+        radioStep3.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
             @Override
             public void onCheckedChanged(CompoundButton compoundButton, boolean isChecked) {
                 if(!isChecked)

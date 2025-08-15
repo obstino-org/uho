@@ -145,6 +145,14 @@
             android:id="@+id/radiobutton_step2"
             android:buttonTint="@color/white"
             android:textColor="@color/white"
+            android:text="Srednje (ravnovesje)"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"/>
+
+        <RadioButton
+            android:id="@+id/radiobutton_step3"
+            android:buttonTint="@color/white"
+            android:textColor="@color/white"
             android:text="Počasneje (točneje)"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"/>
