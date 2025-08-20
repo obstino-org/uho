@@ -4,7 +4,7 @@ plugins {
 
 android {
     namespace 'com.obstino.uho'
-    compileSdk 35
+    compileSdk 36
 
     // Load local.properties
     def localProperties = new Properties()
@@ -68,6 +68,8 @@ android {
             jniLibs.srcDirs = ['src/main/jniLibs']
         }
     }
+	
+	assetPacks = [":my_ai_pack"]
 }
 
 dependencies {

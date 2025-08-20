@@ -17,3 +17,5 @@ ctx10encoder.onnx
 ctx10decoder.onnx
 *.aab
 *.apk
+*.apks
+**/release

@@ -7,6 +7,7 @@
 #define _SILENCE_CXX17_CODECVT_HEADER_DEPRECATION_WARNING
 #include <stdio.h>
 #include <iostream>
+#include <algorithm>
 #include <thread>
 #include <chrono>
 #include <cstdint>
@@ -400,6 +401,47 @@ public:
 		return out;
 	}*/
 
+    float my_clamp(float value, float min, float max) {
+        if(value < min)
+            return min;
+        if(value > max)
+            return max;
+        return value;
+    }
+
+    vector<float> normalize(vector<float>& chunk) {
+        bool useMovingGain = false;
+        float minGain1 = 10.0f;
+        static float movingGain = 10.0f;
+
+        float max = 0.0;
+        for (int i = 0; i < chunk.size(); i++) {
+            float c = abs(chunk[i]);
+            if (c > max)
+                max = c;
+        }
+
+        if (max == 0.0)
+            return chunk;
+
+        float memory = 0.5f;
+        float maxGain = 1.0f / max;
+        float minGain2 = std::min(minGain1, maxGain);
+
+        movingGain = my_clamp(memory * movingGain + (1.0f - memory) * maxGain, minGain2, maxGain);
+        //wprintf(L"movingGain = %.2f VS maxGain = %.2f\n", movingGain, maxGain);
+
+        vector<float> out;
+        for (int i = 0; i < chunk.size(); i++) {
+            if(useMovingGain)
+                out.push_back(chunk[i] * movingGain);
+            else
+                out.push_back(chunk[i] * maxGain);
+        }
+
+        return out;
+    }
+
     // Reimplementation of getNextStreamMel (august 2025)
     // Features:
     //  - function waits until there are at least config.frameStepSeconds of voice activity; silent segments captured in loop don't count as voice activity
@@ -443,99 +485,6 @@ public:
         // add new audio data to end of buffer
         vector<float> newBuffer;
 
-        /*
-        // Original audio capture code, as long as there is new audio chunk, process it
-        while (true && !stopLooperThread) {
-            newBuffer = stream->getNextAudioChunk(config.frameStepSeconds);
-            if (newBuffer.size() > 0)
-                break;
-            else
-                std::this_thread::sleep_for(std::chrono::milliseconds (100)); //Pa_Sleep(100);
-        }*/
-
-        /*// New audio capture code (20.7.2025): we need at least config.frameStepSeconds of voice activity
-        double silenceTime = 0.0;
-        vector<float> noSilenceNewBuffer;
-        vad.resetStates();
-
-        while (true && !stopLooperThread) {
-            //__android_log_print(ANDROID_LOG_INFO, "UHO2", "DEBUG2.1");
-            newBuffer = stream->getNextAudioChunk(0.25);    // (12.8.2025 NOTE: getNextAudioChunk was changed so that its size is divisible by vad.audioChunkSize)
-            if (newBuffer.size() == 0) {
-                std::this_thread::sleep_for(std::chrono::milliseconds (50));    // (1.8.2025 -- changed from 100 to 50)
-                continue;
-            }
-
-            //__android_log_print(ANDROID_LOG_INFO, "UHO2", "DEBUG2.2");
-            //int sizeWithPadding = ((int)ceil((double)newBuffer.size()/(double)vad.audioChunkSize))*vad.audioChunkSize; // if we got e.g. 0.3s, then it is rounded to 0.32 s, which is divisible by vad.audioChunkSize (0.032 s)
-            //newBuffer.resize(sizeWithPadding, 0.0f);
-            vector <float> newBufferNorm = newBuffer; //whisper.PreemphasizeAndNormalize(newBuffer);
-            vector <float> tmpNoSilenceNewBuffer;
-
-            int numVoiceChunksAdded = 0;
-            int silenceCount = 0;
-            int numVadChunksBetweenSound = 2;   // 3
-            for (int i = 0; i < newBuffer.size() - vad.audioChunkSize; i += vad.audioChunkSize) {
-                vector<float> chunkNorm = vector<float>(newBufferNorm.begin() + i, newBufferNorm.begin() + i + vad.audioChunkSize);
-                vector<float> chunk = vector<float>(newBuffer.begin() + i, newBuffer.begin() + i + vad.audioChunkSize);
-                if(vad.forward(chunkNorm) > vadThresh) {
-                    if(silenceCount >= numVadChunksBetweenSound) { // this happens when there was enduring silence, now suddenly theres voice activity
-                        // in this case, we append 3 previous chunks (because in that timeframe, there might have been voice activity)
-                        //__android_log_print(ANDROID_LOG_INFO, "UHO2", "DEBUG2.2.1");
-                        vector<float> prevChunks = vector<float>(
-                                newBuffer.begin() + i - numVadChunksBetweenSound*vad.audioChunkSize,
-                                newBuffer.begin() + i
-                            );
-                        //__android_log_print(ANDROID_LOG_INFO, "UHO2", "DEBUG2.2.2");
-                        tmpNoSilenceNewBuffer.insert(tmpNoSilenceNewBuffer.end(), prevChunks.begin(), prevChunks.end());
-                        //__android_log_print(ANDROID_LOG_INFO, "UHO2", "DEBUG2.2.3");
-                    }
-                    tmpNoSilenceNewBuffer.insert(tmpNoSilenceNewBuffer.end(), chunk.begin(), chunk.end());
-                    //__android_log_print(ANDROID_LOG_INFO, "UHO2", "DEBUG2.2.4");
-                    numVoiceChunksAdded++;
-                    silenceTime = 0.0;
-                    silenceCount = 0;
-                } else {
-                    //__android_log_print(ANDROID_LOG_INFO, "UHO2", "DEBUG2.2.5");
-                    if(silenceCount < numVadChunksBetweenSound)
-                        tmpNoSilenceNewBuffer.insert(tmpNoSilenceNewBuffer.end(), chunk.begin(), chunk.end());
-                    //__android_log_print(ANDROID_LOG_INFO, "UHO2", "DEBUG2.2.6");
-                    silenceTime += (double)vad.audioChunkSize/(double)config.sr;
-                    silenceCount++;
-                }
-            }
-            //__android_log_print(ANDROID_LOG_INFO, "UHO2", "DEBUG2.3");
-            // insert last chunk (skipped by for loop if not divisible by vad.audioChunkSize) -- but only if there wasn't "all silence"
-            tmpNoSilenceNewBuffer.insert(
-                    tmpNoSilenceNewBuffer.end(),
-                    newBuffer.begin() + newBuffer.size() - 1 - newBuffer.size()%vad.audioChunkSize,
-                    newBuffer.end());
-            //__android_log_print(ANDROID_LOG_INFO, "UHO2", "DEBUG2.4");
-
-            if(!noSilenceNewBuffer.empty() && silenceTime >= 0.1) {   // JUST FOR TESTING ! PROBABLY REMOVE LATER
-                __android_log_print(ANDROID_LOG_INFO, "UHO2", "BREAKING BECAUSE OF SMALL SILENCE");
-                dontPopBackExtra = true; // make it decode all ID's without popping back extra
-                // (NOTE@01.08.2025: setting dontPopBackExtra to 'true' gave significant errors during real-time transcriptions)
-                break;
-            }
-
-            if(silenceTime >= config.maxSilenceResetTime) {
-                //fullBuffer.clear();   // (actually we clear fullBuffer later in this function, so that last tokens are decoded too)
-                shouldResetPrompt = true;   // Signal to reset prompt
-                break;
-            }
-
-            if(numVoiceChunksAdded == 0)
-                tmpNoSilenceNewBuffer.clear();
-            else
-                noSilenceNewBuffer.insert(noSilenceNewBuffer.end(), tmpNoSilenceNewBuffer.begin(), tmpNoSilenceNewBuffer.end());
-
-            if(noSilenceNewBuffer.size() >= frameStep)
-                break;
-            else
-                std::this_thread::sleep_for(std::chrono::milliseconds (50)); //100)); //Pa_Sleep(100);  // (1.8.2025 changed from 100 to 50)
-        }*/
-
         static bool prevBreakBecauseOfFramestep = false;
         vector<float> noSilenceNewBuffer;
         int maxSoundActive = 3;
@@ -554,10 +503,12 @@ public:
                 std::this_thread::sleep_for(std::chrono::milliseconds (50));    // (1.8.2025 -- changed from 100 to 50)
                 continue;
             }
+            vector<float> newBufferNorm = normalize(newBuffer);
 
             for (int i = 0; i < newBuffer.size() - vad.audioChunkSize; i += vad.audioChunkSize) {
                 vector<float> chunk = vector<float>(newBuffer.begin() + i, newBuffer.begin() + i + vad.audioChunkSize);
-                float v = vad.forward(chunk);
+                vector<float> chunkNorm = vector<float>(newBufferNorm.begin() + i, newBufferNorm.begin() + i + vad.audioChunkSize);
+                float v = vad.forward(chunkNorm);
                 if(v > 0.5f) {
                     // prepend code
                     if(soundActive < 0) {

@@ -107,6 +107,7 @@ public class PrintoutActivity extends AppCompatActivity {
 
             if(!textviewPrintout.getText().toString().isEmpty()) {
                 if (textToAppend.equals("*")) {
+                    // this happens when no new text
                     nextTimeAppendNewLine = true;
                     textToAppend = "";
                 } else if(!textToAppend.contains("*") && nextTimeAppendNewLine) {
@@ -117,6 +118,9 @@ public class PrintoutActivity extends AppCompatActivity {
                     textToAppend = textToAppend.replace("*, ", "\n\n");
                     textToAppend = textToAppend.replace("*", "\n\n");
                 }
+            } else {
+                // If textviewPrintout has no text displayed, make sure we don't show * as first char
+                textToAppend = textToAppend.replace("*", "");
             }
 
             // Append text to textview

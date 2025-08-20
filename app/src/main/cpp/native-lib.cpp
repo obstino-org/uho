@@ -82,6 +82,7 @@ Java_com_obstino_uho_MainService_nativeStartASR(
     AAssetManager *manager = AAssetManager_fromJava(env, assetManager);
     if(wrf != nullptr)
         return;
+
     __android_log_print(ANDROID_LOG_INFO, "UHO2", "Creating new MainStream object");
     stream = make_shared<MainStream>();
     __android_log_print(ANDROID_LOG_INFO, "UHO2", "Creating new WhisperRealFeed object");

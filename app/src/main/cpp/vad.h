@@ -34,11 +34,15 @@ public:
 	}
 
 	SileroVAD(AAssetManager *manager) {
-		try {
+        __android_log_print(ANDROID_LOG_INFO, "UHO2", "Inside SileroVAD");
+        try {
+            __android_log_print(ANDROID_LOG_INFO, "UHO2", "try1");
 			options.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
+            __android_log_print(ANDROID_LOG_INFO, "UHO2", "try2");
 			env = Ort::Env(OrtLoggingLevel::ORT_LOGGING_LEVEL_VERBOSE, "vad_inference");
-
+            __android_log_print(ANDROID_LOG_INFO, "UHO2", "try3");
             vector<uint8_t> modelData = readAsset(manager, (char*)"silero_vad_opset15.onnx");
+            __android_log_print(ANDROID_LOG_INFO, "UHO2", "try4");
             session = make_unique<Ort::Session>(env, modelData.data(), modelData.size(), options);
             //session = make_unique<Ort::Session>(env, L"silero_vad_opset15.onnx", options);
 		}
@@ -46,14 +50,23 @@ public:
 			std::cerr << "Error creating session: " << e.what() << std::endl;
 		}
 
+        __android_log_print(ANDROID_LOG_INFO, "UHO2", "calling resetStates");
 		resetStates();
+        __android_log_print(ANDROID_LOG_INFO, "UHO2", "exiting");
 	}
 
     vector<uint8_t> readAsset(AAssetManager *manager, char *assetFileName) {
+        __android_log_print(ANDROID_LOG_INFO, "UHO1", "Opening asset with name %s", assetFileName);
         AAsset *asset = AAssetManager_open(manager, assetFileName, AASSET_MODE_BUFFER);
+        if(asset == nullptr)
+            __android_log_print(ANDROID_LOG_INFO, "UHO1", "asset is NULL");
+        else
+            __android_log_print(ANDROID_LOG_INFO, "UHO1", "asset is OK");
+
         uint8_t *buffer = (uint8_t*)AAsset_getBuffer(asset);
         long len = AAsset_getLength(asset);
         vector<uint8_t> v(buffer, buffer + len);
+        AAsset_close(asset);
         return v;
     }
 

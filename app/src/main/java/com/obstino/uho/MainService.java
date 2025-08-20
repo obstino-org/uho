@@ -48,6 +48,8 @@ import androidx.core.app.ActivityCompat;
 import androidx.core.app.NotificationCompat;
 import androidx.localbroadcastmanager.content.LocalBroadcastManager;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.util.Arrays;
 import java.util.Objects;
 import java.util.concurrent.CountDownLatch;
@@ -270,8 +272,16 @@ public class MainService extends Service {
                 return;
             }
 
-            AssetManager assetManager = getResources().getAssets();
-
+            //AssetManager assetManager = getResources().getAssets();
+            Context tmpContext = null;
+            try {
+                tmpContext = createPackageContext("com.obstino.uho", 0);
+            } catch (PackageManager.NameNotFoundException e) {
+                throw new RuntimeException(e);
+            }
+            AssetManager assetManager = tmpContext.getAssets();
+            Log.i("UHO2", String.format("assetManager is %s", (assetManager==null)?"null":"OK"));
+            
             Log.i("UHO2", "Starting...");
             AudioRecord audioRecord;
 

@@ -1,0 +1,11 @@
+// In the AI pack's build.gradle file:
+plugins {
+  id 'com.android.ai-pack'
+}
+
+aiPack {
+    packName = "my_ai_pack" // Directory name for the AI pack
+    dynamicDelivery {
+        deliveryType = "install-time"
+    }
+}

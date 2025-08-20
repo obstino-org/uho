@@ -266,17 +266,20 @@ public:
         cuda_options.device_id = 0;
         options.AppendExecutionProvider_CUDA(cuda_options);*/
 
+        __android_log_print(ANDROID_LOG_INFO, "UHO2", "Creating env");
         env = Ort::Env(
                 OrtLoggingLevel::ORT_LOGGING_LEVEL_VERBOSE,//OrtLoggingLevel::ORT_LOGGING_LEVEL_WARNING,
                 "whisper_inference");
         //options.SetLogSeverityLevel(0);
 
+        __android_log_print(ANDROID_LOG_INFO, "UHO2", "Adding nnapi");
         uint32_t nnapi_flags = 0;
         nnapi_flags |= NNAPI_FLAG_USE_FP16; //| NNAPI_FLAG_CPU_DISABLED; (dont use this CPU DISABLED flag because it might cause crash)
         Ort::ThrowOnError(OrtSessionOptionsAppendExecutionProvider_Nnapi(options, nnapi_flags));
 
         options.SetGraphOptimizationLevel(ORT_ENABLE_ALL);
 
+        __android_log_print(ANDROID_LOG_INFO, "UHO2", "Reading assets");
 #ifdef TINY_MODEL
         vector<uint8_t> encoderData = readAsset(manager, (char*)"tiny_encoder.onnx");
         vector<uint8_t> decoderData = readAsset(manager, (char*)"tiny_decoder.onnx");
@@ -362,7 +365,13 @@ public:
     }
 
     vector<uint8_t> readAsset(AAssetManager *manager, char *assetFileName) {
+        __android_log_print(ANDROID_LOG_INFO, "UHO1", "Opening asset with name %s", assetFileName);
         AAsset *asset = AAssetManager_open(manager, assetFileName, AASSET_MODE_BUFFER);
+        if(asset == nullptr)
+            __android_log_print(ANDROID_LOG_INFO, "UHO1", "asset is NULL");
+        else
+            __android_log_print(ANDROID_LOG_INFO, "UHO1", "asset is OK");
+
         uint8_t *buffer = (uint8_t*)AAsset_getBuffer(asset);
         long len = AAsset_getLength(asset);
         vector<uint8_t> v(buffer, buffer + len);
