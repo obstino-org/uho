@@ -23,7 +23,6 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
-import android.media.projection.MediaProjection;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -42,7 +41,8 @@ import com.obstino.uho.databinding.ActivityMainBinding;
 
 public class MainActivity extends AppCompatActivity {
 
-    static MediaProjection mediaProjection;
+    private Handler mHandler = new Handler();
+
     static ActivityResult mediaProjectionResult;
 
     // Used to load the 'uho' library on application startup.
@@ -56,6 +56,17 @@ public class MainActivity extends AppCompatActivity {
     final int REQUEST_PERMISSION_OVERLAY = 300;
 
     static final String BROADCAST_EVENT_NAME = "MainActivityBroadcast";
+    static final int MSG_STARTSTOP = 0;
+    static final int MSG_GETSTARTSTATE = 1;
+    static final int MSG_STOPPED = 2;
+    static final int MSG_STARTED = 3;
+    static final int MSG_STARTERROR = 4;
+    static final int MSG_WAITSTART = 5;
+    static final int MSG_CAN_OPENSETTINGS = 6;
+    static final int MSG_CANT_OPENSETTINGS = 7;
+    static final int MSG_CAN_INITSTART = 8;
+    static final int MSG_CANT_INITSTART = 9;   // not in use
+    static final int MSG_CAN_INITSTOP = 10;
 
     MediaProjectionManager mediaProjectionManager;
 
@@ -79,54 +90,20 @@ public class MainActivity extends AppCompatActivity {
         LocalBroadcastManager.getInstance(this).registerReceiver(myBroadcastReceiver,
                 new IntentFilter(MainActivity.BROADCAST_EVENT_NAME));
 
-        //if(MainService.serviceInstance == null) {
-        //    Log.i("UHO1", "Trying to startforeground");
-        //    Intent serviceIntent = new Intent(getApplicationContext(), MainService.class);
-        //    startForegroundService(serviceIntent);
-        //}
-
         binding = ActivityMainBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
 
         ((TextView)findViewById(R.id.textview_privacy)).setMovementMethod(LinkMovementMethod.getInstance());
 
+        sendBroadcastMessage(MainActivity.MSG_GETSTARTSTATE);
+
         buttonStart = findViewById(R.id.button_start);
         buttonStart.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                boolean serviceRunning = (MainService.serviceInstance != null);
-
-                if(serviceRunning && MainService.serviceInstance.soundSource == SoundSource.stream) {
-                    // apparently ASR is happening already, stop it then
-                    Log.i("UHO1", "Nastavljam soundsource na stop");
-                    MainService.serviceInstance.soundSource = SoundSource.stop;
-                    Log.i("UHO1", "Nastavil na stop.");
-                    buttonStart.setText("Zaženi");
-                } else if(!serviceRunning || MainService.serviceInstance.soundSource == SoundSource.none) {
-                    runSpeechRecognitionCheckPermissions();
-                } else if(serviceRunning && MainService.serviceInstance.soundSource == SoundSource.stop) {
-                    Toast.makeText(MainActivity.this, "Prosim počakajte trenutek, ustavljanje v teku.", Toast.LENGTH_SHORT).show();
-                    mediaProjection = null;
-                } else if(serviceRunning && MainService.serviceInstance.soundSource == SoundSource.startstream) {
-                    Toast.makeText(MainActivity.this, "Prosim počakajte trenutek, zagon v teku.", Toast.LENGTH_SHORT).show();
-                }
+                sendBroadcastMessage(MainActivity.MSG_CAN_INITSTART);
             }
         });
-
-        if(MainService.serviceInstance == null) {
-            buttonStart.setText("Zaženi");
-        } else {
-            switch(MainService.serviceInstance.soundSource) {
-                case none:
-                case stop:
-                    buttonStart.setText("Zaženi");
-                    break;
-                case stream:
-                case startstream:
-                    buttonStart.setText("Ustavi");
-                    break;
-            }
-        }
 
         Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
         intent.setData(Uri.parse("package:" + getPackageName()));
@@ -137,13 +114,7 @@ public class MainActivity extends AppCompatActivity {
         buttonSettings.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                if(MainService.serviceInstance != null && MainService.serviceInstance.soundSource != SoundSource.none) {
-                    Toast.makeText(MainActivity.this, "Za nastavitve prvo ustavite izvajanje podnaslavljanja.", Toast.LENGTH_SHORT).show();
-                    return;
-                }
-
-                Intent intent = new Intent(MainActivity.this, SettingsActivity.class);
-                startActivity(intent);
+                sendBroadcastMessage(MSG_CAN_OPENSETTINGS);
             }
         });
 
@@ -164,12 +135,59 @@ public class MainActivity extends AppCompatActivity {
         LocalBroadcastManager.getInstance(this).unregisterReceiver(myBroadcastReceiver);
     }
 
+    void sendBroadcastMessage(int msg) {
+        Intent serviceIntent = new Intent(getApplicationContext(), MainService.class);
+        serviceIntent.putExtra("msg", msg);
+        startForegroundService(serviceIntent);
+    }
+
     private BroadcastReceiver myBroadcastReceiver = new BroadcastReceiver() {
+        final String stringStart = "Zaženi";
+        final String stringStop = "Ustavi";
+
         @Override
         public void onReceive(Context context, Intent intent) {
-            // optionally obtain e.g. intent.getStringExtra("xyz");
-            Log.i("UHO1", "Inside broadcast onReceive, setting media projection & running service.");
-            setMediaProjectionAndRunService();
+            int msg = intent.getIntExtra("msg", -1);
+
+            switch(msg) {
+                case MSG_STARTED:
+                    buttonStart.setText(stringStop);
+                    break;
+
+                case MSG_STOPPED:
+                    buttonStart.setText(stringStart);
+                    break;
+
+                case MSG_STARTERROR:
+                    Log.i("UHO1", "Inside broadcast onReceive, got MSG_STARTERROR");
+                    Toast.makeText(getApplicationContext(), "Napaka pri zagonu.", Toast.LENGTH_LONG).show();
+                    buttonStart.setText(stringStart);
+                    break;
+
+                case MSG_WAITSTART:
+                    Toast.makeText(getApplicationContext(), "Podprogram se zaganja, prosim počakajte.", Toast.LENGTH_SHORT).show();
+                    buttonStart.setText(stringStart);
+                    break;
+
+                case MSG_CAN_INITSTART:
+                    runSpeechRecognitionCheckPermissions();
+                    break;
+
+                case MSG_CAN_INITSTOP:
+                    Intent serviceIntent = new Intent(getApplicationContext(), MainService.class);
+                    serviceIntent.putExtra("msg", MSG_STARTSTOP);
+                    startForegroundService(serviceIntent);
+                    break;
+
+                case MSG_CAN_OPENSETTINGS:
+                    Intent activityIntent = new Intent(MainActivity.this, SettingsActivity.class);
+                    startActivity(activityIntent);
+                    break;
+
+                case MSG_CANT_OPENSETTINGS:
+                    Toast.makeText(getApplicationContext(), "Za odpiranje nastavitev prvo ustavite izvajanje.", Toast.LENGTH_LONG).show();
+                    break;
+            }
         }
     };
 
@@ -178,11 +196,15 @@ public class MainActivity extends AppCompatActivity {
             case REQUEST_PERMISSION_OVERLAY:
                 if(hasOverlayPermission()) {
                     // This gets called after (first) permission for overlay drawing is accepted
+
+                    /*
                     boolean useMic = prefs.getBoolean("useMicrophone", SettingsActivity.defaultUseMicrophone);
                     if (useMic)
                         showEnableMicrophone();
                     else
                         showEnableMediaProjection();
+                     */
+                    showEnableMicrophone();
                 }
                 break;
             case REQUEST_PERMISSION_MICROPHONE:
@@ -295,17 +317,16 @@ public class MainActivity extends AppCompatActivity {
             new ActivityResultCallback<ActivityResult>() {
                 @Override
                 public void onActivityResult(ActivityResult result) {
-                    final Handler handler = new Handler();
-                    handler.postDelayed(new Runnable() {
+                    mediaProjectionResult = result;
+
+                    mHandler.postDelayed(new Runnable() {
                         @Override
                         public void run() {
                             int resultCode = result.getResultCode();
                             if(resultCode != RESULT_OK)
                                 return;
 
-                            runSpeechRecognition();
-
-                            mediaProjectionResult = result;
+                            runSpeechRecognition(result);
                             //Intent resultIntent = result.getData();
                             //int resultCode = result.getResultCode();
                             //mediaProjection = mediaProjectionManager.getMediaProjection(resultCode, resultIntent);
@@ -337,29 +358,41 @@ public class MainActivity extends AppCompatActivity {
         dlgAlert.create().show();
     }
 
-    void setMediaProjectionAndRunService() {
+    /*void setMediaProjectionAndRunService() {
         Log.i("UHO1", "Pridobivam mediaProjection");
         Intent resultIntent = mediaProjectionResult.getData();
         int resultCode = mediaProjectionResult.getResultCode();
         mediaProjection = mediaProjectionManager.getMediaProjection(resultCode, resultIntent);
 
-        Log.i("UHO1", "Pridobil MediaProjection token. Nastavljam.");
-        MainService.serviceInstance.mediaProjection = mediaProjection;
-        MainService.serviceInstance.soundSource = SoundSource.startstream;
+        //Log.i("UHO1", "Pridobil MediaProjection token. Nastavljam.");
+        //MainService.serviceInstance.mediaProjection = mediaProjection;
+        //MainService.serviceInstance.soundSource = SoundSource.startstream;
+
         Intent serviceIntent = new Intent(getApplicationContext(), MainService.class);
+        serviceIntent.putExtra("code", resultCode);
         startForegroundService(serviceIntent);
         Log.i("UHO1", "(Znova?) zagnal foreground service");
         buttonStart.setText("Ustavi");
-    }
+    }*/
 
-    void runSpeechRecognition() {
-        if(MainService.serviceInstance == null) {
-            Log.i("UHO1", "Service hasn't been started yet. Calling startForegroundService and waiting for broadcast");
+    void runSpeechRecognition(ActivityResult result) {
+        /*if(MainService.serviceInstance == null) {
+            Log.i(UHO1", "Service hasn't been started yet. Calling startForegroundService and waiting for broadcast");
             Intent serviceIntent = new Intent(getApplicationContext(), MainService.class);
             startForegroundService(serviceIntent);
         } else {
             setMediaProjectionAndRunService();
-        }
+        }*/
+
+        Intent resultData = result.getData();
+        int resultCode = result.getResultCode();
+
+        Intent serviceIntent = new Intent(getApplicationContext(), MainService.class);
+        serviceIntent.putExtra("msg", MSG_STARTSTOP);
+        serviceIntent.putExtra("code", resultCode);
+        serviceIntent.putExtra("data", resultData);
+        startForegroundService(serviceIntent);
+        Log.i("UHO1", "Zagnal foreground service");
     }
 
     void showEnableAll() {
@@ -367,10 +400,6 @@ public class MainActivity extends AppCompatActivity {
     }
 
     void runSpeechRecognitionCheckPermissions() {
-        boolean serviceRunning = (MainService.serviceInstance != null);
-        if(serviceRunning && MainService.serviceInstance.soundSource != SoundSource.none)
-            return;
-
         showEnableAll();
     }
 }

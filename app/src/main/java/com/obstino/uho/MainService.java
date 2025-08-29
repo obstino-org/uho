@@ -3,6 +3,8 @@
 
 package com.obstino.uho;
 
+import static android.app.Activity.RESULT_CANCELED;
+import static android.app.Activity.RESULT_OK;
 import static android.content.res.Configuration.ORIENTATION_LANDSCAPE;
 import static com.obstino.uho.App.CHANNEL_ID;
 import static com.obstino.uho.App.handler;
@@ -24,8 +26,11 @@ import android.media.AudioPlaybackCaptureConfiguration;
 import android.media.AudioRecord;
 import android.media.MediaRecorder;
 import android.media.projection.MediaProjection;
+import android.media.projection.MediaProjectionManager;
 import android.os.Build;
+import android.os.Handler;
 import android.os.IBinder;
+import android.os.Looper;
 import android.os.MessageQueue;
 import android.os.PowerManager;
 import android.provider.MediaStore;
@@ -52,21 +57,27 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.Arrays;
 import java.util.Objects;
+import java.util.Queue;
 import java.util.concurrent.CountDownLatch;
 
 enum SoundSource {
     none,
     startstream,
-    stream, // strema sound
+    stream, // stream sound
     stop,
 };
 
 public class MainService extends Service {
     static MainService serviceInstance;
 
+    Handler mHandler = new Handler(Looper.getMainLooper());
+
     Thread mainThread;
+    boolean mainThreadStopSignal = false;
+    int handlerQueueCount = 0;
+
     MediaProjection mediaProjection;
-    SoundSource soundSource = SoundSource.none;
+    //SoundSource soundSource = SoundSource.none;
 
     SharedPreferences prefs;
 
@@ -78,41 +89,119 @@ public class MainService extends Service {
         return null;
     }
 
+    boolean mainThreadRunning() {
+        return (mainThread != null);
+    }
+
     // Triggered when we start the service (called every time startService is called, can be done multiple times -- Intent contains info)
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        if(intent == null)
+            return START_NOT_STICKY;
+
+        int msg = intent.getIntExtra("msg", -1);
+        switch(msg) {
+            case MainActivity.MSG_CAN_INITSTART:
+                // This executes upon Start button press
+                // -- if handlerQueueCount > 0, start is already in running, return "can't init start"
+                // -- if handlerQueueCount = 0 and main thread is running, we can safely signalize to stop
+                // -- otherwise, if main thread isn't running, activity can show permission dialogs and start
+                if(handlerQueueCount > 0) {
+                    sendMainActivityBroadcastMessage(MainActivity.MSG_CANT_INITSTART);
+                } else if(mainThreadRunning()) {
+                    sendMainActivityBroadcastMessage(MainActivity.MSG_CAN_INITSTOP);
+                }
+                else {
+                    sendMainActivityBroadcastMessage(MainActivity.MSG_CAN_INITSTART);
+                }
+                break;
+
+            case MainActivity.MSG_CAN_OPENSETTINGS:
+                if(mainThreadRunning() || handlerQueueCount > 0)
+                    sendMainActivityBroadcastMessage(MainActivity.MSG_CANT_OPENSETTINGS);
+                else
+                    sendMainActivityBroadcastMessage(MainActivity.MSG_CAN_OPENSETTINGS);
+
+                break;
+
+            case MainActivity.MSG_GETSTARTSTATE:
+                if(handlerQueueCount > 0)
+                    sendMainActivityBroadcastMessage(MainActivity.MSG_WAITSTART);
+                else if(mainThreadRunning())
+                    sendMainActivityBroadcastMessage(MainActivity.MSG_STARTED);
+                else
+                    sendMainActivityBroadcastMessage(MainActivity.MSG_STOPPED);
+
+                break;
+
+            case MainActivity.MSG_STARTSTOP:
+                if(handlerQueueCount > 0) {
+                    // signalize that it's currently still in stopped state
+                    sendMainActivityBroadcastMessage(MainActivity.MSG_STOPPED);
+                    break;
+                }
+
+                if(mainThreadRunning()) {
+                    mainThreadStopSignal = true;
+                    break;
+                }
+
+                int resultCode = intent.getIntExtra("code", RESULT_CANCELED);
+
+                // if ASR is not active and invalid resultCode, return error
+                if(resultCode != RESULT_OK) {
+                    Log.i("UHO2", "bad resultCode");
+                    sendMainActivityBroadcastMessage(MainActivity.MSG_STARTERROR);
+                    break;
+                }
+
+                // ASR is not active, use intent extras to obtain the mediaProjection token
+                Log.i("UHO2", "Getting mediaProjection inside MainService!");
+
+                handlerQueueCount++;
+                mHandler.postDelayed(new Runnable() {
+                    @Override
+                    public void run() {
+                        int resultCode = intent.getIntExtra("code", -1);
+                        Intent data = intent.getParcelableExtra("data");
+                        MediaProjectionManager mediaProjectionManager = (MediaProjectionManager) getSystemService(MEDIA_PROJECTION_SERVICE);
+                        mediaProjection = mediaProjectionManager.getMediaProjection(resultCode, data);
+
+                        mainThread = new Thread(mainThreadRunnable);
+                        mainThread.start();
+                        handlerQueueCount--;
+                        Log.i("UHO2", "Starting main thread inside MainService");
+                    }
+                }, 500);
+                break;
+        }
+
+        return START_STICKY;
+    }
+
+    Notification buildNotification() {
         Intent notificationIntent = new Intent(this, MainActivity.class);
         PendingIntent pendingIntent = PendingIntent.getActivity(this, 0, notificationIntent, PendingIntent.FLAG_MUTABLE);
 
         Notification notification = new NotificationCompat.Builder(this, CHANNEL_ID)
                 .setContentInfo("UHO storitev")
-                .setContentText("")
-                .setSmallIcon(R.drawable.ic_android)
+                .setContentText("UHO")
+                .setSmallIcon(R.drawable.ikona)
                 .setContentIntent(pendingIntent)
                 .build();
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(1, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION);
-        }
-
-        // String input = intent.getStringExtra("...");
-        if(soundSource == SoundSource.startstream) {
-            mainThread = new Thread(mainThreadRunnable);
-            mainThread.start();
-            Log.i("UHO2", "Starting main thread");
-        }
-
-        if(mainThread == null)
-            sendMainActivityBroadcastMessage(0);    // message MainActivity that service has started
-
-        return START_STICKY;
-        //return super.onStartCommand(intent, flags, startId);
+        return notification;
     }
 
     // Called the first time we start the service
     @Override
     public void onCreate() {
         serviceInstance = this;
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
+            startForeground(1, buildNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION);
+        else
+            startForeground(1, buildNotification());
 
         PowerManager powerManager = (PowerManager) getSystemService(POWER_SERVICE);
         PowerManager.WakeLock wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "MyApp::MyWakelockTag");
@@ -127,6 +216,17 @@ public class MainService extends Service {
     public void onDestroy() {
         if(wakeLock != null)
             wakeLock.release();
+
+        // clean up mainThread
+        while(mainThread != null) {
+            mainThreadStopSignal = true;
+
+            try {
+                Thread.sleep(200);
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
+            }
+        }
 
         super.onDestroy();
     }
@@ -238,16 +338,37 @@ public class MainService extends Service {
     }
 
     Runnable mainThreadRunnable = new Runnable() {
+        View layout;
+        OrientationEventListener orientationEventListener;
+
+        void cleanup() {
+            if(layout != null) {
+                WindowManager windowManager = (WindowManager) getSystemService(Context.WINDOW_SERVICE);
+                windowManager.removeView(layout);
+            }
+
+            if(orientationEventListener != null)
+                orientationEventListener.disable();
+            mediaProjection = null;
+            mainThread = null;
+            mainThreadStopSignal = false;
+
+            sendMainActivityBroadcastMessage(MainActivity.MSG_STOPPED);
+        }
+
         @Override
         public void run() {
             // The code will assume that if we run using media projection, we already have a valid token (mediaProjection variable)
             boolean useMicrophone = prefs.getBoolean("useMicrophone", SettingsActivity.defaultUseMicrophone);
+            Log.i("UHO2", "useMicrophone = " + useMicrophone);
+
             android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO); //THREAD_PRIORITY_FOREGROUND);
 
             Log.i("UHO2", "Creating window");
-            View layout = createLayout();
+            layout = createLayout();
             Log.i("UHO2", "Created");
-            OrientationEventListener orientationEventListener = new OrientationEventListener(getApplicationContext()) {
+
+            orientationEventListener = new OrientationEventListener(getApplicationContext()) {
                 @Override
                 public void onOrientationChanged(int i) {
                     Log.i("UHO2", "Orientation changed!!");
@@ -258,17 +379,18 @@ public class MainService extends Service {
                 }
             };
 
-            if (orientationEventListener.canDetectOrientation()) {
+            if (orientationEventListener.canDetectOrientation())
                 orientationEventListener.enable();
-            }
 
             if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.Q) {
-                soundSource = SoundSource.none;
+                cleanup();
+                sendMainActivityBroadcastMessage(MainActivity.MSG_STARTERROR);
                 return;
             }
 
             if (useMicrophone && ActivityCompat.checkSelfPermission(getApplicationContext(), android.Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-                soundSource = SoundSource.none;
+                cleanup();
+                sendMainActivityBroadcastMessage(MainActivity.MSG_STARTERROR);
                 return;
             }
 
@@ -277,7 +399,10 @@ public class MainService extends Service {
             try {
                 tmpContext = createPackageContext("com.obstino.uho", 0);
             } catch (PackageManager.NameNotFoundException e) {
-                throw new RuntimeException(e);
+                cleanup();
+                sendMainActivityBroadcastMessage(MainActivity.MSG_STARTERROR);
+                return;
+                //throw new RuntimeException(e);
             }
             AssetManager assetManager = tmpContext.getAssets();
             Log.i("UHO2", String.format("assetManager is %s", (assetManager==null)?"null":"OK"));
@@ -299,7 +424,7 @@ public class MainService extends Service {
                         .setAudioFormat(new AudioFormat.Builder()
                                 .setSampleRate(16000)
                                 .setEncoding(AudioFormat.ENCODING_PCM_FLOAT)
-                                .setChannelMask(AudioFormat.CHANNEL_IN_MONO)
+                                .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
                                 .build())
                         //.setAudioSource(MediaRecorder.AudioSource.DEFAULT)    <-- use this when not using Playback Capture Config
                         .setAudioPlaybackCaptureConfig(config)
@@ -320,7 +445,8 @@ public class MainService extends Service {
                 audioRecord.startRecording();
             } catch (IllegalStateException e) {
                 Log.i("UHO2", "Exception message: " + Objects.requireNonNull(e.getMessage()));
-                soundSource = SoundSource.none;
+                cleanup();
+                sendMainActivityBroadcastMessage(MainActivity.MSG_STARTERROR);
                 return;
             }
 
@@ -345,12 +471,12 @@ public class MainService extends Service {
             Log.i("UHO2", "Calling nativeStartASR");
             nativeStartASR(assetManager, stepDouble);
             Log.i("UHO2", "Start!");
-            soundSource = SoundSource.stream;
+            sendMainActivityBroadcastMessage(MainActivity.MSG_STARTED);
 
             String fullText = "";
             Long lastCallbackTime = System.currentTimeMillis();
 
-            while (soundSource == SoundSource.stream) {
+            while (!mainThreadStopSignal) {
                 float[] buff = new float[800];
                 int numRead = audioRecord.read(buff, 0, buff.length, AudioRecord.READ_BLOCKING);
 
@@ -398,12 +524,8 @@ public class MainService extends Service {
             audioRecord.stop();
             nativeStopASR(assetManager);
 
-            orientationEventListener.disable();
-            WindowManager windowManager = (WindowManager) getSystemService(Context.WINDOW_SERVICE);
-            windowManager.removeView(layout);
-
-            mediaProjection = null;
-            soundSource = SoundSource.none;
+            cleanup();
+            sendMainActivityBroadcastMessage(MainActivity.MSG_STOPPED);
         }
     };
 
