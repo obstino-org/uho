@@ -5,7 +5,7 @@
 
 ### *This version has been deprecated*
 
-**New and improved UHO Slovene v3** using NeMo ASR models is available on: <https://github.com/obstino-org/UHO_Slovene_v3> (also avaiable on Google Play!)
+**New and improved UHO Slovene v3** using NeMo ASR models is available on: <https://github.com/obstino-org/UHO_Slovene_v3> (also available on Google Play!)
 
 ### Description
 
